@@ -2,7 +2,9 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 import joblib
 import pandas as pd
-
+import time
+import uuid
+from fastapi import Request
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -41,6 +43,38 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    start = time.perf_counter()
+    request_id = str(uuid.uuid4())
+
+    try:
+        response = await call_next(request)
+    except Exception:
+        logger.exception(
+            "Unhandled request failure: %s",
+            request_id
+        )
+        raise
+    finally:
+        elapsed_ms = (
+            time.perf_counter() - start
+        ) * 1000
+
+    response.headers["X-Request-ID"] = request_id
+
+    logger.info(
+        "request_id=%s method=%s path=%s "
+        "status=%s latency_ms=%.2f",
+        request_id,
+        request.method,
+        request.url.path,
+        response.status_code,
+        elapsed_ms
+    )
+
+    return response
 
 class SICInput(BaseModel):
     albedo: float = Field(ge=0, le=1)
